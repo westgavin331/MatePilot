@@ -1,0 +1,17 @@
+{
+  "name": "matepilot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Onshape side panel that auto-mates bolts to holes",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "express": "^4.22.3"
+  }
+}
