@@ -39,9 +39,80 @@ function toOnshape(message) {
 async function call(path, body) {
   const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const data = await res.json().catch(() => ({ error: `Server error ${res.status}` }));
+  if (res.status === 401 && data.login) {
+    showLogin();
+    throw new Error('Please log in to Onshape first (button above), then try again.');
+  }
   if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
   return data;
 }
+
+// ---- Onshape login from inside the panel ----
+// Onshape's login page can't load inside this frame, so it opens in a pop-up.
+// The panel then watches /api/whoami (answered by our server, no Onshape call).
+
+let loginBox = null;
+let loginWatch = null;
+
+async function whoami() {
+  const res = await fetch('/api/whoami');
+  return res.ok ? res.json() : { loggedIn: false };
+}
+
+function stopWatching() {
+  clearInterval(loginWatch);
+  loginWatch = null;
+}
+
+async function checkLogin(popup) {
+  const me = await whoami().catch(() => ({ loggedIn: false }));
+  if (me.loggedIn) {
+    stopWatching();
+    loginBox?.remove();
+    loginBox = null;
+    say(`Logged in to Onshape as ${me.user}. Type "connect bolts to holes" to start.`);
+    button.disabled = false;
+    return;
+  }
+  if (popup?.closed) {
+    stopWatching();
+    say(
+      'The login window closed, but this panel still cannot see your login. Your browser is most likely blocking ' +
+        'third-party cookies for Onshape. In Chrome: Settings → Privacy and security → Third-party cookies → ' +
+        '"Allowed to use third-party cookies" → Add → cad.onshape.com. Then reload the Onshape tab and log in again.',
+      'bot err'
+    );
+  }
+}
+
+function startLogin() {
+  const popup = window.open('/oauth/login', 'matepilot-login', 'popup,width=520,height=720');
+  if (!popup) {
+    say(`Your browser blocked the login pop-up. Open ${location.origin}/oauth/login in a new tab, log in, and this panel will notice within a few seconds.`, 'bot warn');
+  }
+  stopWatching();
+  const started = Date.now();
+  loginWatch = setInterval(() => {
+    if (Date.now() - started > 5 * 60 * 1000) return stopWatching();
+    checkLogin(popup);
+  }, 2000);
+}
+
+function showLogin() {
+  if (loginBox) return;
+  const box = document.createDocumentFragment();
+  box.append(el('div', 'MatePilot needs you to log in to Onshape (once per server start).'));
+  const b = el('button', 'Log in to Onshape');
+  b.type = 'button';
+  b.addEventListener('click', startLogin);
+  box.append(b);
+  loginBox = say(box);
+}
+
+// The login pop-up says "done" here when it can (Onshape's pages sometimes cut the link).
+window.addEventListener('message', (ev) => {
+  if (ev.origin === location.origin && ev.data?.matepilot === 'login-changed') checkLogin();
+});
 
 async function scan() {
   const wait = say('Scanning the assembly… (this can take a little while on big assemblies)');
@@ -153,4 +224,7 @@ if (!ids.documentId || !ids.workspaceId || !ids.elementId) {
 } else {
   toOnshape({ messageName: 'applicationInit' });
   say('Hi! Type "connect bolts to holes" to find bolts and the holes they sit in.');
+  whoami()
+    .then((me) => { if (!me.loggedIn) showLogin(); })
+    .catch(() => say('Cannot reach the MatePilot server. Is it running (npm start)?', 'bot err'));
 }

@@ -1,5 +1,7 @@
-// Minimal Onshape REST client. Uses HTTP Basic auth with the API key pair.
-import { config, requireKeys } from './config.js';
+// Minimal Onshape REST client. Signs calls with the API key pair or the logged-in
+// user's OAuth token, depending on ONSHAPE_AUTH_MODE (see auth.js).
+import { config } from './config.js';
+import { authorization, noteScheme } from './auth.js';
 
 const API_VERSION = 'v10';
 
@@ -13,17 +15,12 @@ export class OnshapeError extends Error {
 
 function hint(status) {
   switch (status) {
-    case 401: return '(the API keys were rejected - check .env for typos or a deleted key)';
-    case 403: return '(the key is missing a permission, or you cannot access this document)';
+    case 401: return config.authMode === 'oauth' ? '(Onshape rejected the login token - log in again)' : '(the API keys were rejected - check .env for typos or a deleted key)';
+    case 403: return '(missing a permission, or you cannot access this document)';
     case 404: return '(document/element/part not found - check the URL and ids)';
     case 429: return '(rate limited by Onshape)';
     default: return '';
   }
-}
-
-function authHeader() {
-  requireKeys();
-  return 'Basic ' + Buffer.from(`${config.accessKey}:${config.secretKey}`).toString('base64');
 }
 
 // Counts API calls made by this process (Onshape limits calls per account).
@@ -49,12 +46,17 @@ export async function api(method, path, { query, body } = {}) {
     if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
   }
 
+  let refreshedOnce = false;
+  let forceRefresh = false;
   for (let attempt = 0; ; attempt++) {
+    const auth = await authorization({ force: forceRefresh });
+    forceRefresh = false;
     stats.calls++;
+    noteScheme(auth.scheme);
     const res = await fetch(url, {
       method,
       headers: {
-        Authorization: authHeader(),
+        Authorization: auth.header,
         Accept: 'application/json;charset=UTF-8; qs=0.09',
         ...(body ? { 'Content-Type': 'application/json' } : {}),
       },
@@ -68,6 +70,11 @@ export async function api(method, path, { query, body } = {}) {
       if (wait > 20000) throw new OnshapeError(429, method, path, `Onshape asked to wait ${Math.round(wait / 1000)} s before retrying.`);
       console.warn(`Onshape rate limit: waiting ${wait} ms`);
       await new Promise((r) => setTimeout(r, wait));
+      continue;
+    }
+    // An OAuth token can be revoked or expire early: refresh it once and retry.
+    if (res.status === 401 && auth.scheme === 'Bearer' && !refreshedOnce) {
+      refreshedOnce = forceRefresh = true;
       continue;
     }
     const text = await res.text();

@@ -9,6 +9,16 @@ Onshape side panel: type "connect bolts to holes", review the highlighted matche
 4. Your Onshape extension's action URL should be:
    `http://localhost:3000/panel.html?documentId={$documentId}&workspaceId={$workspaceId}&elementId={$elementId}`
 
+## Hosting on Render (permanent https address)
+New → Web Service → this GitHub repo. Build command `npm install`, start command `npm start`, plan Free.
+Environment variables: `ONSHAPE_AUTH_MODE=oauth`, `ONSHAPE_OAUTH_CLIENT_ID`, `ONSHAPE_OAUTH_CLIENT_SECRET`,
+`SESSION_SECRET` (use Render's "Generate"), `MATEPILOT_ALLOW_WRITES`, `MATEPILOT_WRITE_DOCS`.
+Leave out `PORT`, `ONSHAPE_OAUTH_REDIRECT_URI` and the API keys: Render's own address is picked up automatically.
+Logins are kept in an encrypted cookie, so Render's restarts don't log anyone out.
+Onshape Developer Portal (with `https://<your-app>.onrender.com`):
+- OAuth redirect URL: `https://<your-app>.onrender.com/oauth/callback`
+- Extension action URL: `https://<your-app>.onrender.com/panel.html?documentId={$documentId}&workspaceId={$workspaceId}&elementId={$elementId}`
+
 ## Step-by-step checks (run in this folder)
 | Command | What it shows |
 |---|---|
